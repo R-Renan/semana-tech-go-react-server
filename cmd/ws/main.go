@@ -9,7 +9,7 @@ import (
 	"os/signal"
 
 	"github.com/R-Renan/semana-tech-go-react-server/internal/api"
-	"github.com/R-Renan/semana-tech-go-react-server/internal/store/pgstore"
+	store "github.com/R-Renan/semana-tech-go-react-server/internal/store/pgstore"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 )
@@ -39,7 +39,7 @@ func main() {
 		panic(err)
 	}
 
-	handler := api.NewHandler(pgstore.New(pool))
+	handler := api.NewHandler(store.New(pool))
 
 	go func() {
 		if err := http.ListenAndServe(":8080", handler); err != nil {

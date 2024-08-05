@@ -5,7 +5,7 @@ sql:
     schema: "./migrations"
     gen:
       go:
-        out: "."
+        out: "./pgstore"
         package: "store"
         sql_package: "pgx/v5"
         overrides:
