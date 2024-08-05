@@ -17,13 +17,12 @@ func (h apiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func NewHandler(q *pgstore.Queries) http.Handler {
-	r := chi.NewRouter()
-
-	// Inicializar apiHandler com todos os campos preenchidos
 	a := apiHandler{
 		q: q,
-		r: r,
 	}
+	
+	r := chi.NewRouter()
 
+	a.r = r
 	return a
 }
