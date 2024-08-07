@@ -73,6 +73,38 @@ func NewHandler(q *store.Queries) http.Handler {
 	return a
 }
 
+const (
+	MessageKindMessageCreated = "message_created"
+)
+
+type MessageMessageCreated struct {
+	ID      string `json:"id"`
+	Message string `json:"message"`
+}
+
+type Message struct {
+	Kind   string `json:"kind"`
+	Value  any    `json:"value"`
+	RoomID string `json:"-"`
+}
+
+func (h apiHandler) notifyClients(msg Message) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	subscribers, ok := h.subscribers[msg.RoomID]
+	if !ok || len(subscribers) == 0 {
+		return
+	}
+
+	for con, cancel := range subscribers {
+		if err := con.WriteJSON(msg); err != nil {
+			slog.Error("failed to send message to client", "error", err)
+			cancel()
+		}
+	}
+}
+
 // metodo para se inscrever em uma sala
 func (h apiHandler) handleSubscribe(w http.ResponseWriter, r *http.Request) {
 	rawRoomID := chi.URLParam(r, "room_id")
@@ -149,7 +181,56 @@ func (h apiHandler) handleCreateRoom(w http.ResponseWriter, r *http.Request) {
 func (h apiHandler) handleGetRooms(w http.ResponseWriter, r *http.Request) {}
 
 // metodo para criar uma mensagem em uma sala
-func (h apiHandler) handleCreateRoomMessages(w http.ResponseWriter, r *http.Request) {}
+func (h apiHandler) handleCreateRoomMessages(w http.ResponseWriter, r *http.Request) {
+	rawRoomID := chi.URLParam(r, "room_id")
+	roomID, err := uuid.Parse(rawRoomID)
+	if err != nil {
+		http.Error(w, "invalid room id", http.StatusBadRequest)
+		return
+	}
+
+	_, err = h.q.GetRoom(r.Context(), roomID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			http.Error(w, "room not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, "something went wrong", http.StatusNotFound)
+		return
+	}
+
+	type _body struct {
+		Message string `json:"message"`
+	}
+	var body _body
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid json", http.StatusBadRequest)
+		return
+	}
+	messageID, err := h.q.InsertMessage(r.Context(), store.InsertMessageParams{RoomID: roomID, Message: body.Message})
+	if err != nil {
+		slog.Error("failed to insert message", "error", err)
+		http.Error(w, "something went wrong", http.StatusInternalServerError)
+		return
+	}
+	type response struct {
+		ID string `json:"id"`
+	}
+
+	data, _ := json.Marshal(response{ID: messageID.String()})
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(data)
+
+	go h.notifyClients(Message{
+		Kind:   MessageKindMessageCreated,
+		RoomID: rawRoomID,
+		Value: MessageMessageCreated{
+			ID:      messageID.String(),
+			Message: body.Message,
+		},
+	})
+
+}
 
 // metodo para listar as mensagens de uma sala
 func (h apiHandler) handleGetRoomMessages(w http.ResponseWriter, r *http.Request) {}
